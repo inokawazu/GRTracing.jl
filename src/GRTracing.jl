@@ -1,35 +1,15 @@
 module GRTracing
 
-using ForwardDiff, LinearAlgebra, OrdinaryDiffEq, StaticArrays
-
-struct Metric{F <: Function, G}
-    components::F
-    size::G
-end
-
-function Base.size(m::Metric)
-    m.size
-end
-
-function (m::Metric)(position)
-    m.components(position)
-end
-
-function Base.inv(m::Metric)
-    Metric(
-           ComposedFunction(inv, m.components),
-           m.size
-          )
-end
+using Symbolics, LinearAlgebra, OrdinaryDiffEq, ThreadsX
 
 """
     schwarzschild_metric_function((t,x,y,z); rs, c = 1)
 """
-function schwarzschild_metric_function((t,x,y,z); rs, c = 1)
-    R = hypot(x,y,z)
+function schwarzschild_metric_iso_cart((t,x,y,z); rs, c = 1)
+    R = (sqrt∘sum)(x->x^2,(x,y,z))
     rm = (1 - rs/R)^2
     rp = (1 + rs/R)^2
-    @SMatrix [
+    return [
      -rm/rp*c^2 0 0 0
      0 rp^2 0 0
      0 0 rp^2 0
@@ -37,42 +17,50 @@ function schwarzschild_metric_function((t,x,y,z); rs, c = 1)
     ]
 end
 
-function schwarzschild_metric(; c = 1, rs = 1)
-    Metric( 
-           v -> schwarzschild_metric_function(v, rs=rs,c=c),
-           (4, 4)
-          )
-end
-
-function diff_metric(metric::Metric, position)
-    out = ForwardDiff.jacobian(metric, position)
-    return reshape(out, (size(metric)..., :))
-end
-
 """
-    geodesic_acceleration(metric, velocity, position)
+    geodesic_acceleration( metric_fun::Function )
 
     Gives the acceleration according to GR
 """
-function geodesic_acceleration(metric::Metric, velocity, position)
-    dmetric = diff_metric(metric, position)
-    inv_metric = inv(metric)(position)
+function geodesic_acceleration_func( metric::Function, dim::Integer )
+    position = Symbolics.variables(:x, 0:dim-1)
+    velocity = Symbolics.variables(:v, 0:dim-1)
+    g = metric(position)
+    ig = inv(g)
+    dg = [
+          Symbolics.derivative(g[i], c) 
+          for i in eachindex(IndexCartesian(), g), c in position
+         ]
 
-    [
-     sum(
-         -1/2*inv_metric[i, l] * (dmetric[n,l,m] + dmetric[m,l,n] - dmetric[m,n,l]) * velocity[n] * velocity[m]
-         for m in 1:length(velocity), 
-             n in 1:length(velocity), 
-             l in 1:length(velocity)
-        )
+    accel = [
+     simplify(sum(
+                  -1/2*ig[i, l] * (dg[n,l,m] + dg[m,l,n] - dg[m,n,l]) * velocity[n] * velocity[m]
+                  for m in 1:dim, n in 1:dim, l in 1:dim
+                 ))
      for i in 1:length(velocity)
     ]
+
+    gf = build_function(accel, velocity, position, expression = Val{false})[2]
+    return @eval $gf
 end
 
-function initial_ray_velocity(metric::Metric, spatial_velocity, spatial_position)
+function geodesic_acceleration_test()
+    metric_f = x -> schwarzschild_metric_iso_cart(x; rs = 1, c = 1)
+    Symbolics.simplify(geodesic_acceleration_func( metric_f, 4 ))
+end
+
+function make_ode_function(metric::Function, dim::Integer)
+    let f = geodesic_acceleration_func(metric, dim)
+        function (ddu, du, u, _, _)
+            return f(ddu, du, u)
+        end
+    end
+end
+
+function initial_ray_velocity(metric_func::Function, spatial_velocity, spatial_position)
     position = [0; spatial_position]
 
-    met = metric(position)
+    met = metric_func(position)
 
     velocity = [0; spatial_velocity]
     velocity[1] = -velocity'*met*velocity
@@ -85,76 +73,34 @@ function initial_ray_position(spatial_position)
     [0; spatial_position]
 end
 
-function euler_step(metric::Metric, velocity, position, dt)
-    new_velocity = dt * geodesic_acceleration(metric, velocity, position) + velocity
-    new_position = dt * velocity  + position
-    return (new_velocity, new_position)
-end
-
-function run_euler_trace(
-        metric::Metric,
-        initial_spatial_velocity, initial_spatial_position;
-        time_final, dt
-    )
-    velocity = initial_ray_velocity(metric, 
-                                    initial_spatial_velocity, 
-                                    initial_spatial_position) 
-    position = initial_ray_position(initial_spatial_position)
-    for _ in range(0, time_final, step = dt)
-        (velocity, position) = euler_step(metric, velocity, position, dt)
-    end
-    (velocity, position)
-end
-
-function make_ode_function(metric::Metric)
-    function ode_function(u′, u, _, _)
-        geodesic_acceleration(metric, u′, u)
-    end
+function trace_ode_termination_cb(state,_,_)
+    state[1]^2 - 10e5
 end
 
 function run_ode_trace(
-        metric::Metric,
+        ode_func, metf,
         initial_spatial_velocity, initial_spatial_position,
         time_final
     )
 
-    du0 = initial_ray_velocity(metric, initial_spatial_velocity, initial_spatial_position)
+    du0 = initial_ray_velocity(metf, initial_spatial_velocity, initial_spatial_position)
     u0 = initial_ray_position(initial_spatial_position)
-    f = make_ode_function(metric)
     
+    termination = ContinuousCallback(trace_ode_termination_cb, terminate!)
 
-    function cb(state,_,_)
-        du, u = state[1:end÷2], state[end÷2+1:end]
-        abs(det(metric(u))) < 10e-5 || dot(du, du) < 10e-5
-    end
-
-    termination = DiscreteCallback(cb, terminate!)
-
-    prob = SecondOrderODEProblem(f, du0, u0, (0, time_final))
+    prob = SecondOrderODEProblem(ode_func, du0, u0, (0, time_final))
 
     solve(prob, RK4(), callback = termination)
 end
 
-# set routines
-
-function run_ode_trace_test()
-    metric = schwarzschild_metric(rs = 1)
-    time_final = 100
-
-    run_ode_trace(
-                  metric,
-                  Float64[1,-1,0], Float64[5,0,0],
-                  time_final
-                 )
-end
-
 function run_ode_circle_tests()
-    metric = schwarzschild_metric(rs = 1)
-    time_final = 200
+    metric_f = x -> schwarzschild_metric_iso_cart(x; rs = 1, c = 1)
+    ode_f = make_ode_function(metric_f, 4)
 
-    map(range(0, 2*pi, length=100)) do theta
+    time_final = 50
+    @time ThreadsX.map(range(0, 2*pi, length=1000)) do theta
         run_ode_trace(
-                      metric,
+                      ode_f, metric_f,
                       Float64[sincos(theta)...,0], Float64[5,0,0],
                       time_final
                      )
