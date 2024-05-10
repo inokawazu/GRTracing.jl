@@ -40,21 +40,12 @@ function geodesic_acceleration_func( metric::Function, dim::Integer )
      for i in 1:length(velocity)
     ]
 
-    gf = build_function(accel, velocity, position, expression = Val{false})[2]
-    return @eval $gf
+    eval(build_function(accel, velocity, position, :p, :t, expression = Val{false})[2])
 end
 
 function geodesic_acceleration_test()
     metric_f = x -> schwarzschild_metric_iso_cart(x; rs = 1, c = 1)
     Symbolics.simplify(geodesic_acceleration_func( metric_f, 4 ))
-end
-
-function make_ode_function(metric::Function, dim::Integer)
-    let f = geodesic_acceleration_func(metric, dim)
-        function (ddu, du, u, _, _)
-            return f(ddu, du, u)
-        end
-    end
 end
 
 function initial_ray_velocity(metric_func::Function, spatial_velocity, spatial_position)
@@ -93,9 +84,26 @@ function run_ode_trace(
     solve(prob, RK4(), callback = termination)
 end
 
+# function run_ode_traces(
+#         ode_func, metf,
+#         initial_spatial_velocities, initial_spatial_positions,
+#         time_final
+#     )
+#     # du0 = initial_ray_velocity(metf, initial_spatial_velocity, initial_spatial_position)
+#     du0s = map(initial_spatial_velocities, initial_spatial_positions) do v0, x0
+#         initial_ray_velocity(metf, v0, x0)
+#     end
+#     u0s = map(initial_spatial_positions) do x0
+#         initial_ray_position(x0)
+#     end
+#     termination = ContinuousCallback(trace_ode_termination_cb, terminate!)
+#     prob = SecondOrderODEProblem(ode_func, du0, u0, (0, time_final))
+#     solve(prob, RK4(), callback = termination)
+# end
+
 function run_ode_circle_tests()
     metric_f = x -> schwarzschild_metric_iso_cart(x; rs = 1, c = 1)
-    ode_f = make_ode_function(metric_f, 4)
+    ode_f = geodesic_acceleration_func(metric_f, 4)
 
     time_final = 50
     @time ThreadsX.map(range(0, 2*pi, length=1000)) do theta
@@ -105,6 +113,56 @@ function run_ode_circle_tests()
                       time_final
                      )
     end
+end
+
+function fibonacci_sphere(samples=1000; T=Float64)
+
+    points = Vector{T}[]
+    phi::T = pi * (sqrt(T(5)) - one(T))  # golden angle in radians
+
+    for i in 0:samples-1
+        y::T = 1 - (i / T(samples - 1)) * 2  # y goes from 1 to -1
+        radius::T = sqrt(1 - y * y)  # radius at y
+
+        theta = phi * i  # golden angle increment
+
+        x = cos(theta) * radius
+        z = sin(theta) * radius
+
+        push!(points, [x, y, z])
+    end
+
+    return points
+end
+
+function run_ode_circle_sphere_test(n)
+    metric_f = x -> schwarzschild_metric_iso_cart(x; rs = 1, c = 1)
+    ode_f = geodesic_acceleration_func(metric_f, 4)
+
+    initial_directions = fibonacci_sphere(n)
+
+    time_final = 100
+    @time traces = ThreadsX.map(initial_directions) do dir
+        run_ode_trace(
+                      ode_f, metric_f,
+                      dir, Float64[0,2,0],
+                      time_final
+                     )
+    end
+
+    final_directions = map(traces) do trace
+        normalize(trace.u[end][2:end÷2])
+    end
+
+    (initial_directions, final_directions)
+end
+
+function cart_to_sphere(x)
+    r = norm(x)
+    [
+     atan(x[2], x[1]),
+     atan(r, x[3])
+    ]
 end
 
 end # module GRTracing
