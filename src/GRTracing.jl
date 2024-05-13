@@ -1,168 +1,130 @@
 module GRTracing
 
-using Symbolics, LinearAlgebra, OrdinaryDiffEq, ThreadsX
+using Colors
+using FileIO
+using LinearAlgebra
+using OrdinaryDiffEq
+using Symbolics
+using ThreadsX
 
-"""
-    schwarzschild_metric_function((t,x,y,z); rs, c = 1)
-"""
-function schwarzschild_metric_iso_cart((t,x,y,z); rs, c = 1)
-    R = (sqrt∘sum)(x->x^2,(x,y,z))
-    rm = (1 - rs/R)^2
-    rp = (1 + rs/R)^2
-    return [
-     -rm/rp*c^2 0 0 0
-     0 rp^2 0 0
-     0 0 rp^2 0
-     0 0 0 rp^2
-    ]
+include("metric_functions.jl")
+include("tests.jl")
+include("ode.jl")
+include("direction_setting.jl")
+include("coordinate_change.jl")
+
+const TEST_IMAGE_DIR = joinpath(@__DIR__, "..", "assets", "test_images")
+
+function load_test_image(filename)
+    load(joinpath(TEST_IMAGE_DIR, filename))
+end
+
+# TODO: include camera position and direction in struct
+struct MetricRenderer{F <: Function, G <: Function}
+    metric_function::F
+    ode_function::G
+end
+
+function MetricRenderer(metric_function::Function, dim = 4)
+    ode_function = geodesic_acceleration_func(metric_function, dim)
+    return MetricRenderer(metric_function, ode_function)
 end
 
 """
-    geodesic_acceleration( metric_fun::Function )
-
-    Gives the acceleration according to GR
-"""
-function geodesic_acceleration_func( metric::Function, dim::Integer )
-    position = Symbolics.variables(:x, 0:dim-1)
-    velocity = Symbolics.variables(:v, 0:dim-1)
-    g = metric(position)
-    ig = inv(g)
-    dg = [
-          Symbolics.derivative(g[i], c) 
-          for i in eachindex(IndexCartesian(), g), c in position
-         ]
-
-    accel = [
-     simplify(sum(
-                  -1/2*ig[i, l] * (dg[n,l,m] + dg[m,l,n] - dg[m,n,l]) * velocity[n] * velocity[m]
-                  for m in 1:dim, n in 1:dim, l in 1:dim
-                 ))
-     for i in 1:length(velocity)
-    ]
-
-    eval(build_function(accel, velocity, position, :p, :t, expression = Val{false})[2])
-end
-
-function geodesic_acceleration_test()
-    metric_f = x -> schwarzschild_metric_iso_cart(x; rs = 1, c = 1)
-    Symbolics.simplify(geodesic_acceleration_func( metric_f, 4 ))
-end
-
-function initial_ray_velocity(metric_func::Function, spatial_velocity, spatial_position)
-    position = [0; spatial_position]
-
-    met = metric_func(position)
-
-    velocity = [0; spatial_velocity]
-    velocity[1] = -velocity'*met*velocity
-    velocity[1] /= met[1, 1]
-    velocity[1] = sqrt( velocity[1] )
-    return velocity
-end
-
-function initial_ray_position(spatial_position)
-    [0; spatial_position]
-end
-
-function trace_ode_termination_cb(state,_,_)
-    state[1]^2 - 10e5
-end
-
-function run_ode_trace(
-        ode_func, metf,
-        initial_spatial_velocity, initial_spatial_position,
-        time_final
+    render_pixel2heading(
+        met_renderer::MetricRenderer, pixel_coord, position, camera_direction;
+        time_final = 300
     )
 
-    du0 = initial_ray_velocity(metf, initial_spatial_velocity, initial_spatial_position)
-    u0 = initial_ray_position(initial_spatial_position)
-    
-    termination = ContinuousCallback(trace_ode_termination_cb, terminate!)
+Render renders pixel with spacetime.
 
-    prob = SecondOrderODEProblem(ode_func, du0, u0, (0, time_final))
+pixel_coord -> sphere_point (initial heading) -> translated heading
 
-    solve(prob, RK4(), callback = termination)
+If the translated heading is not at infinity, the returned pixel is black.
+
+Else, it's mapped to a point on the celestial sphere -> pixel_coord.
+"""
+function render_pixel2heading(
+        met_renderer::MetricRenderer, pixel_coord, position, camera_direction;
+        time_final = 300
+    )
+
+    camera_direction = normalize(camera_direction)
+    cam_matrix = [camera_direction nullspace(camera_direction*camera_direction')]
+
+    (θ, ϕ) = uv_to_spherical(pixel_coord)
+
+    x = sin(ϕ) * cos(θ)
+    y = sin(ϕ) * sin(θ)
+    z = cos(ϕ)
+
+    initial_heading = cam_matrix * [x, y, z]
+
+    trace = run_ode_trace(met_renderer.ode_function, met_renderer.metric_function,
+                  initial_heading, position, time_final)
+
+    trace.u[end][1:end÷2]
 end
 
-# function run_ode_traces(
-#         ode_func, metf,
-#         initial_spatial_velocities, initial_spatial_positions,
-#         time_final
-#     )
-#     # du0 = initial_ray_velocity(metf, initial_spatial_velocity, initial_spatial_position)
-#     du0s = map(initial_spatial_velocities, initial_spatial_positions) do v0, x0
-#         initial_ray_velocity(metf, v0, x0)
-#     end
-#     u0s = map(initial_spatial_positions) do x0
-#         initial_ray_position(x0)
-#     end
-#     termination = ContinuousCallback(trace_ode_termination_cb, terminate!)
-#     prob = SecondOrderODEProblem(ode_func, du0, u0, (0, time_final))
-#     solve(prob, RK4(), callback = termination)
-# end
 
-function run_ode_circle_tests()
-    metric_f = x -> schwarzschild_metric_iso_cart(x; rs = 1, c = 1)
-    ode_f = geodesic_acceleration_func(metric_f, 4)
+function render_test()
+    mfunc = x -> schwarzschild_metric_iso_cart(x; rs = 1, c = 1)
+    mrend = MetricRenderer(mfunc)
+    out4vecs = map(Iterators.product(0.0:0.1:1.0, 0.0:0.1:1.0)) do (u, v)
+        render_pixel2heading(mrend, (u, v), Float64[-20, 0, 0], Float64[1,0,0])
+    end
 
-    time_final = 50
-    @time ThreadsX.map(range(0, 2*pi, length=1000)) do theta
-        run_ode_trace(
-                      ode_f, metric_f,
-                      Float64[sincos(theta)...,0], Float64[5,0,0],
-                      time_final
-                     )
+    first.(out4vecs)
+end
+
+function render_test_480x320()
+    mfunc = x -> schwarzschild_metric_iso_cart(x; rs = 1, c = 1)
+    mrend = MetricRenderer(mfunc)
+    us = range(0.0, 1.0, length=48)
+    vs = range(0.0, 1.0, length=32)
+
+
+    @time out4vecs = ThreadsX.map(Iterators.product(us, vs)) do (u, v)
+        render_pixel2heading(mrend, (u, v), Float64[-20, 0, 0], Float64[1,0,0])
     end
 end
 
-function fibonacci_sphere(samples=1000; T=Float64)
-
-    points = Vector{T}[]
-    phi::T = pi * (sqrt(T(5)) - one(T))  # golden angle in radians
-
-    for i in 0:samples-1
-        y::T = 1 - (i / T(samples - 1)) * 2  # y goes from 1 to -1
-        radius::T = sqrt(1 - y * y)  # radius at y
-
-        theta = phi * i  # golden angle increment
-
-        x = cos(theta) * radius
-        z = sin(theta) * radius
-
-        push!(points, [x, y, z])
-    end
-
-    return points
+function render_test_320x320_picture()
+    render_test_picture(320)
 end
 
-function run_ode_circle_sphere_test(n)
-    metric_f = x -> schwarzschild_metric_iso_cart(x; rs = 1, c = 1)
-    ode_f = geodesic_acceleration_func(metric_f, 4)
-
-    initial_directions = fibonacci_sphere(n)
-
-    time_final = 100
-    @time traces = ThreadsX.map(initial_directions) do dir
-        run_ode_trace(
-                      ode_f, metric_f,
-                      dir, Float64[0,2,0],
-                      time_final
-                     )
-    end
-
-    final_directions = map(traces) do trace
-        normalize(trace.u[end][2:end÷2])
-    end
-
-    (initial_directions, final_directions)
+function render_test_640x640_picture()
+    render_test_picture(640)
 end
 
-function cart_to_sphere(x)
-    r = norm(x)
-    [
-     atan(x[2], x[1]),
-     atan(r, x[3])
-    ]
+function render_test_picture(view_size::Integer)
+    mfunc = x -> schwarzschild_metric_iso_cart(x; rs = 1, c = 1)
+    mrend = MetricRenderer(mfunc)
+    us = range(0.0, 1.0, length=view_size)
+    vs = range(0.0, 1.0, length=view_size)
+
+
+    @time out4vecs = ThreadsX.map(Iterators.product(us, vs)) do (u, v)
+        render_pixel2heading(mrend, (u, v), Float64[0, -100, 0], Float64[0,1,0])
+    end
+
+    test_image = load_test_image("test_sky_1.png")
+    black = zero(eltype(test_image))
+
+    view_image = map(out4vecs) do out4vec
+        if norm(out4vec[1]) > 100
+            return black
+        end
+
+        (u, v) = (sphere_to_uv∘cart_to_sphere)(out4vec[2:end])
+        
+        i = clamp(ceil(Int, v * size(test_image, 1)), 1, size(test_image, 1))
+        j = clamp(ceil(Int, u * size(test_image, 2)), 1, size(test_image, 2))
+        test_image[i, j]
+    end
+
+    @show size(view_image)
+    save("test_view_image_$(view_size).png", view_image)
 end
 
 end # module GRTracing
