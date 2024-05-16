@@ -12,3 +12,17 @@ function schwarzschild_metric_iso_cart((t,x,y,z); rs, c = 1)
      0 0 0 rp^2
     ]
 end
+
+"""
+    schwarzschild_metric_iso_cart((t,x,y,z); rs, c = 1)
+"""
+function soft_lump_metric_iso_cart((t,x,y,z); rs, c = 1)
+    R = (sqrt∘sum)(x->x^2,(x,y,z))
+    rp = (1 + rs/R)^2
+    return [
+     -c^2 0 0 0
+     0 rp^2 0 0
+     0 0 rp^2 0
+     0 0 0 rp^2
+    ]
+end
