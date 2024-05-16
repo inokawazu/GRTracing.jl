@@ -19,15 +19,22 @@ function load_test_image(filename)
     load(joinpath(TEST_IMAGE_DIR, filename))
 end
 
-# TODO: include camera position and direction in struct
-struct MetricRenderer{F <: Function, G <: Function}
+struct MetricRenderer{F <: Function, G <: Function, T, V}
     metric_function::F
     ode_function::G
+    position::T
+    # camera_direction::T
+    cam_matrix::V
 end
 
-function MetricRenderer(metric_function::Function, dim = 4)
+function MetricRenderer(metric_function::Function, position, camera_direction, dim = 4)
     ode_function = geodesic_acceleration_func(metric_function, dim)
-    return MetricRenderer(metric_function, ode_function)
+    camera_direction = normalize(camera_direction)
+    cam_matrix = [camera_direction nullspace(camera_direction*camera_direction')]
+    return MetricRenderer(
+                          metric_function, ode_function,
+                          position, cam_matrix
+                         )
 end
 
 """
@@ -45,12 +52,13 @@ If the translated heading is not at infinity, the returned pixel is black.
 Else, it's mapped to a point on the celestial sphere -> pixel_coord.
 """
 function render_pixel2heading(
-        met_renderer::MetricRenderer, pixel_coord, position, camera_direction;
+        met_renderer::MetricRenderer, pixel_coord;
         time_final = 300
     )
 
-    camera_direction = normalize(camera_direction)
-    cam_matrix = [camera_direction nullspace(camera_direction*camera_direction')]
+    (;position, cam_matrix) = met_renderer
+
+    # camera_direction = normalize(camera_direction)
 
     (θ, ϕ) = uv_to_spherical(pixel_coord)
 
@@ -69,24 +77,29 @@ end
 
 function render_test()
     mfunc = x -> schwarzschild_metric_iso_cart(x; rs = 1, c = 1)
-    mrend = MetricRenderer(mfunc)
+    mrend = MetricRenderer(mfunc, Float64[-20, 0, 0], Float64[1,0,0])
     out4vecs = map(Iterators.product(0.0:0.1:1.0, 0.0:0.1:1.0)) do (u, v)
-        render_pixel2heading(mrend, (u, v), Float64[-20, 0, 0], Float64[1,0,0])
+        render_pixel2heading(mrend, (u, v))
     end
 
     first.(out4vecs)
 end
 
-function render_test_480x320()
-    mfunc = x -> schwarzschild_metric_iso_cart(x; rs = 1, c = 1)
-    mrend = MetricRenderer(mfunc)
-    us = range(0.0, 1.0, length=48)
-    vs = range(0.0, 1.0, length=32)
+# function render_test_480x320()
+#     mfunc = x -> schwarzschild_metric_iso_cart(x; rs = 1, c = 1)
+#     mrend = MetricRenderer(mfunc, Float64[-20, 0, 0], Float64[1,0,0])
+#     us = range(0.0, 1.0, length=48)
+#     vs = range(0.0, 1.0, length=32)
+#     @time out4vecs = ThreadsX.map(Iterators.product(us, vs)) do (u, v)
+#         render_pixel2heading(mrend, (u, v))
+#     end
+# end
 
-
-    @time out4vecs = ThreadsX.map(Iterators.product(us, vs)) do (u, v)
-        render_pixel2heading(mrend, (u, v), Float64[-20, 0, 0], Float64[1,0,0])
-    end
+# Timsings
+# 16 Threads ~ 295a834 ~ 0.89s
+# 16 Threads ~ 295a834 ~ 1.05s
+function render_test_100x100_picture()
+    render_test_picture(100)
 end
 
 function render_test_320x320_picture()
@@ -99,13 +112,13 @@ end
 
 function render_test_picture(view_size::Integer)
     mfunc = x -> schwarzschild_metric_iso_cart(x; rs = 1, c = 1)
-    mrend = MetricRenderer(mfunc)
+    mrend = MetricRenderer(mfunc, Float64[0, -100, 0], Float64[0,1,0])
     us = range(0.0, 1.0, length=view_size)
     vs = range(0.0, 1.0, length=view_size)
 
 
     @time out4vecs = ThreadsX.map(Iterators.product(us, vs)) do (u, v)
-        render_pixel2heading(mrend, (u, v), Float64[0, -100, 0], Float64[0,1,0])
+        render_pixel2heading(mrend, (u, v))
     end
 
     test_image = load_test_image("test_sky_1.png")
