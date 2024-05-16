@@ -85,19 +85,9 @@ function render_test()
     first.(out4vecs)
 end
 
-# function render_test_480x320()
-#     mfunc = x -> schwarzschild_metric_iso_cart(x; rs = 1, c = 1)
-#     mrend = MetricRenderer(mfunc, Float64[-20, 0, 0], Float64[1,0,0])
-#     us = range(0.0, 1.0, length=48)
-#     vs = range(0.0, 1.0, length=32)
-#     @time out4vecs = ThreadsX.map(Iterators.product(us, vs)) do (u, v)
-#         render_pixel2heading(mrend, (u, v))
-#     end
-# end
-
 # Timsings
 # 16 Threads ~ 295a834 ~ 0.89s
-# 16 Threads ~ 295a834 ~ 1.05s
+# 16 Threads ~ 17fc4cf ~ 0.85s
 function render_test_100x100_picture()
     render_test_picture(100)
 end
