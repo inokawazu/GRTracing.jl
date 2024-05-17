@@ -4,15 +4,18 @@ using Colors
 using FileIO
 using LinearAlgebra
 using OrdinaryDiffEq
-using Symbolics
+# using Symbolics
 using ThreadsX
+using ForwardDiff
+using FiniteDiff
+using StaticArrays
 
-include("metric_functions.jl")
-include("tests.jl")
-include("ode.jl")
-include("direction_setting.jl")
-include("coordinate_change.jl")
-include("rendering.jl")
+include("metrics.jl")
+# include("tests.jl")
+# include("ode.jl")
+# include("direction_setting.jl")
+# include("coordinate_change.jl")
+# include("rendering.jl")
 
 # function render_pixels2headings(
 #         met_renderer::MetricRenderer, pixel_coords;
