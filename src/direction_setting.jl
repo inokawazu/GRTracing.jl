@@ -38,3 +38,13 @@ function fibonacci_sphere(samples=1000; T=Float64, VT = Vector)
 
     return points
 end
+
+function pixel_coord_to_heading(pixel_coord; cam_matrix)
+    (θ, ϕ) = uv_to_spherical(pixel_coord)
+
+    x = sin(ϕ) * cos(θ)
+    y = sin(ϕ) * sin(θ)
+    z = cos(ϕ)
+
+    cam_matrix * SA[x, y, z]
+end

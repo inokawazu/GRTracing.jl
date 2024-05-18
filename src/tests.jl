@@ -70,27 +70,6 @@ function test_lagrangian()
     accp = lvivj\(-lvixj*velocity + lxixj*velocity)
 end
 
-function lagrangian_accel!(lagf::T, accel::StaticVector{N}, velocity::StaticVector{N, VT}, position::StaticVector{N}) where {T, N, VT}
-    vp = vcat(velocity, position)
-    M = 2N
-
-    laghp = similar(velocity, (M, M))
-    ForwardDiff.hessian!(laghp, lagf, vp)
-
-    laggp = similar(velocity, M)
-    ForwardDiff.gradient!(laggp, lagf, vp)
-
-    lvivj = @view laghp[1:M÷2, 1:M÷2]
-    lvixj = @view laghp[1:M÷2, M÷2+1:M] 
-    lxj = @view laggp[M÷2+1:M]
-
-    accel .= lxj
-    mul!(accel, lvixj, velocity, -1, 1)
-    accel .= lvivj \ accel
-
-    nothing
-end
-
 function test_lagrangian_accel()
     position = SA{Float64}[3,3,3,3]
     velocity = SA{Float64}[1,2,3,4]
@@ -131,6 +110,27 @@ function test_lag_render()
 
     @time render_pixel2heading(renderer, uv)
     @time render_pixel2heading(renderer, uv)
+end
+
+function test_bulk_lag_render(view_size = 30)
+    cam_position = SA{Float64}[-20,0,0]
+    cam_direction = normalize(SA{Float64}[1,0,0])
+    # uv = (0.5, 0.5)
+
+    metf = x -> soft_lump_metric_iso_cart(x; c = 1.0, rs = 1.0)
+
+    renderer = LagrangianRender(metf, cam_direction, cam_position)
+
+    us = range(0.0, 1.0, length=view_size)
+    vs = range(0.0, 1.0, length=view_size)
+    uvs = Iterators.product(us, vs)
+
+    # out4vecs = ThreadsX.map(Iterators.product(us, vs)) do (u, v)
+    #     render_pixel2heading(mrend, (u, v))
+    # end
+
+    @time render_pixels2headings(renderer, collect(uvs))
+    # @time render_pixels2headings(renderer, uvs)
 end
 
 function test_lag_metric_sky(view_size::Integer, mfunc, view_image_name; distance = 200)
