@@ -70,7 +70,7 @@ function test_lag_render()
 end
 
 
-function render_sky(mrend::LagrangianRender, view_size::Integer, sky_image)
+function render_sky(mrend::LagrangianRender, view_size::Integer; sky_image = load_test_image("test_sky_1.png"))
     us = range(0.0, 1.0, length=view_size)
     vs = range(0.0, 1.0, length=view_size)
 
@@ -93,7 +93,7 @@ function render_sky(mrend::LagrangianRender, view_size::Integer, sky_image)
     end
 end
 
-function test_lag_render_sky(view_size::Integer)
+function test_lag_render_sky(view_size::Integer; distance = 200)
     sky_image = load_test_image("test_sky_1.png")
     mfuncs = [
               x -> schwarzschild_metric_iso_cart(x; rs = 1.0, c = 1.0)
@@ -102,8 +102,8 @@ function test_lag_render_sky(view_size::Integer)
              ]
 
     for (i, mfunc) in enumerate(mfuncs)
-        mrend = LagrangianRender(mfunc, SA{Float64}[0,1,0], SA{Float64}[0, -200, 0])
-        view_image = render_sky(mrend, view_size, sky_image)
+        mrend = LagrangianRender(mfunc, SA{Float64}[0,1,0], SA{Float64}[0, -distance, 0])
+        view_image = render_sky(mrend, view_size, sky_image=sky_image)
         save("test_view_image_$(i)_$(view_size).png", view_image)
         @info "Finished $i at view size of $view_size."
     end
