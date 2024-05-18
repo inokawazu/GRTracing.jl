@@ -93,12 +93,23 @@ function render_sky(mrend::LagrangianRender, view_size::Integer; sky_image = loa
     end
 end
 
+function test_lag_metric_sky(view_size::Integer, mfunc, view_image_name; distance = 200)
+    sky_image = load_test_image("test_sky_1.png")
+
+    mrend = LagrangianRender(mfunc, SA{Float64}[0,1,0], SA{Float64}[0, -distance, 0])
+    view_image = render_sky(mrend, view_size, sky_image=sky_image)
+    save("$view_image_name.png", view_image)
+
+    @info "Finished $view_image_name at view size of $view_size."
+end
+
 function test_lag_render_sky(view_size::Integer; distance = 200)
     sky_image = load_test_image("test_sky_1.png")
     mfuncs = [
               x -> schwarzschild_metric_iso_cart(x; rs = 1.0, c = 1.0)
               x -> soft_lump_metric_iso_cart(x; rs = 1.0, c = 1.0)
               x -> minkowski_cart(x; c = 1.0)
+              x -> kerr_metric_pseudo_cart(x; re = 1.0, a=0.5, c = 1.0)
              ]
 
     for (i, mfunc) in enumerate(mfuncs)

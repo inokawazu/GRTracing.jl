@@ -41,8 +41,13 @@ end
 
 """
 https://physics.stackexchange.com/a/568769
+
+`re` ≡ *Radius* of *Ergosphere*
+
+TODO: Bounds on `a` w.r.t `re`
 """
-function kerr_metric_pseudo_cart((t,x,y,z); m, a, c = 1)
+function kerr_metric_pseudo_cart((t,x,y,z); re, a, c = 1)
+    m = re^2 / 2
     r = sqrt(-a^2 + x^2 + y^2 + z^2 + sqrt(4*a^2*z^2 + (-a^2 + x^2 + y^2 + z^2)^2 ))/sqrt(2)
     rot_fact = 2m*r^3/(r^4 + a^2*z^2)
     rot_vec = SA[
