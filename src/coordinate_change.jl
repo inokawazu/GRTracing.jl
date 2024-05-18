@@ -1,9 +1,6 @@
 function cart_to_sphere(x)
     r = norm(x)
-    [
-     atan(x[2], x[1])
-     atan(r, x[3])
-    ]
+    atan(x[2], x[1]), atan(r, x[3])
 end
 
 function uv_to_spherical(pixel_coord;
@@ -18,8 +15,5 @@ function uv_to_spherical(pixel_coord;
 end
 
 function sphere_to_uv((the, phi))
-    [
-     the/2pi
-     phi/pi
-    ]
+     the/2pi, phi/pi
 end

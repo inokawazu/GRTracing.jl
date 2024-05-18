@@ -13,9 +13,9 @@ using StaticArrays
 include("metrics.jl")
 # include("tests.jl")
 # include("ode.jl")
-# include("direction_setting.jl")
-# include("coordinate_change.jl")
-# include("rendering.jl")
+include("direction_setting.jl")
+include("coordinate_change.jl")
+include("rendering.jl")
 
 # function render_pixels2headings(
 #         met_renderer::MetricRenderer, pixel_coords;

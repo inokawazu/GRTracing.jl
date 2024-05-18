@@ -1,6 +1,27 @@
-function fibonacci_sphere(samples=1000; T=Float64)
+function flat_initial_ray_velocity(svec)
+    vcat(1, normalize(svec))
+end
 
-    points = Vector{T}[]
+function initial_ray_velocity(svec, tvec, met)
+    a = dot(svec, met, svec)
+    b = dot(svec, met, tvec)
+    c = dot(tvec, met, tvec)
+    # TODO: account for other root
+    scale = max((-b + sqrt(b^2 - a*c))/a, (-b - sqrt(b^2 - a*c))/a)
+    return tvec + scale * svec
+end
+
+function flat_initial_ray_position(svec, tinit = 0)
+    vcat(tinit, svec)
+end
+
+function initial_ray_position(args...)
+    flat_initial_ray_position(args...)
+end
+
+function fibonacci_sphere(samples=1000; T=Float64, VT = Vector)
+
+    points = VT{T}[]
     phi::T = pi * (sqrt(T(5)) - one(T))  # golden angle in radians
 
     for i in 0:samples-1

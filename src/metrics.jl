@@ -3,7 +3,8 @@
 using OrdinaryDiffEq: FiniteDiff
 """
 function schwarzschild_metric_iso_cart((t,x,y,z); rs, c = 1)
-    R = (sqrt∘sum)(x->x^2,(x,y,z))
+    # R = (sqrt∘sum)(x->x^2, (x,y,z))
+    R = hypot(x,y,z)
     rm = (1 - rs/R)^2
     rp = (1 + rs/R)^2
     return SA[
@@ -14,20 +15,49 @@ function schwarzschild_metric_iso_cart((t,x,y,z); rs, c = 1)
     ]
 end
 
-function lagrangian(met::AbstractArray, velocity, position)
-    1/2 * dot(velocity, met, velocity)
+"""
+    soft_lump_metric_iso_cart((t,x,y,z); rs, c = 1)
+"""
+function soft_lump_metric_iso_cart((t,x,y,z); rs = 1.0, c = 1.0)
+    R = hypot(x,y,z)
+    # rp = 1 + rs/(R + rs)
+    rp = (1 + rs/(R+rs))^2
+    return SA[
+     -c^2 0 0 0
+     0 rp^2 0 0
+     0 0 rp^2 0
+     0 0 0 rp^2
+    ]
 end
 
-function lagrangian(met::AbstractArray, vp::StaticVector{N}) where N
-    @views lagrangian(met, vp[1:N÷2], vp[N÷2+1:N])
+function minkowski_cart((t,x,y,z); c = 1.0)
+    return SA[
+     -c^2 0 0 0
+     0 1 0 0
+     0 0 1 0
+     0 0 0 1
+    ]
 end
+
+function lagrangian(met::AbstractArray, velocity::AbstractVector)
+    velocity'*met*velocity/2
+end
+
+# function lagrangian(met::AbstractArray, vp::StaticVector{N}) where N
+#     vind = SVector{N÷2}(1:N÷2)
+#     pind = SVector{N÷2}(N÷2+1:N)
+#     lagrangian(met, vp[vind], vp[pind])
+# end
 
 function lagrangian(metf::Function, velocity, position)
-    1/2 * dot(velocity, metf(position), velocity)
+    # dot(velocity, metf(position), velocity)/2
+    lagrangian(metf(position), velocity)
 end
 
 function lagrangian(metf::Function, vp::StaticVector{N}) where N
-    @views lagrangian(metf, vp[1:N÷2], vp[N÷2+1:N])
+    vind = SVector{N÷2}(1:N÷2)
+    pind = SVector{N÷2}(N÷2+1:N)
+    lagrangian(metf, vp[vind], vp[pind])
 end
 
 
@@ -49,7 +79,7 @@ function test_lagrangian()
 
     display(metp)
     display(laghp)
-    # lvivj aj + lvixj vj =  lxixj vj
+
     lvivj = @view laghp[1:end÷2, 1:end÷2] 
     lvixj = @view laghp[1:end÷2, end÷2+1:end] 
     lxixj = @view laghp[end÷2+1:end, end÷2+1:end] 
@@ -75,6 +105,28 @@ function lagrangian_accel!(lagf::T, accel::StaticVector{N}, velocity::StaticVect
     accel .= lvivj \ accel
 
     nothing
+end
+
+function lagrangian_accel(lagf::T, velocity::StaticVector{N, VT}, position::StaticVector{N}) where {T, N, VT}
+    vp = vcat(velocity, position)
+
+    laghp = ForwardDiff.hessian(lagf, vp)
+    laggp = ForwardDiff.gradient(lagf, vp)
+
+    vind = SVector{N}(1:N)
+    pind = SVector{N}(N+1:2N)
+
+    lvivj = laghp[vind, vind]
+    lvixj = laghp[vind, pind] 
+    lxj = laggp[pind]
+
+    # @show laghp
+    # @show laghp
+    # display(laghp)
+    # @show lvivj
+    # @show det(lvivj)
+
+    lvivj \ (-lvixj*velocity + lxj)
 end
 
 function test_lagrangian_accel()
@@ -106,17 +158,3 @@ function test_lagrangian_accel()
      end)
 end
 
-
-"""
-    soft_lump_metric_iso_cart((t,x,y,z); rs, c = 1)
-"""
-@inline function soft_lump_metric_iso_cart((t,x,y,z); rs = 1.0, c = 1.0)
-    R = hypot(x,y,z)
-    rp = (1 + rs/R)^2
-    return SA[
-     -c^2 0 0 0
-     0 rp^2 0 0
-     0 0 rp^2 0
-     0 0 0 rp^2
-    ]
-end

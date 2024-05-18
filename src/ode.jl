@@ -1,11 +1,3 @@
-function trace_ode_termination_cb(vtcutoff=10e3)
-    let vtcutoff=vtcutoff
-        cb = (state,_,_) -> norm(state[1]) - vtcutoff
-        ContinuousCallback(cb, terminate!)
-    end
-end
-
-
 """
     geodesic_acceleration( metric_fun::Function )
 
