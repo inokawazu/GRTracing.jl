@@ -70,33 +70,54 @@ function test_lagrangian()
     accp = lvivj\(-lvixj*velocity + lxixj*velocity)
 end
 
+
+function test_metric_accel()
+    position = SA{Float64}[3,3,3,3]
+    velocity = SA{Float64}[1,2,3,4]
+    # acceleration = similar(velocity)
+
+    metf = x -> soft_lump_metric_iso_cart(x; rs = 1.0)
+    imetf = inv∘metf
+
+    @time metric_accel(metf, imetf, velocity, position)
+    @time metric_accel(metf, imetf, velocity, position)
+
+    nruns = 100_000
+    @time (foreach(1:nruns) do _
+         metric_accel(metf, imetf, velocity, position)
+     end)
+
+    # nruns = 1920*1080
+    # @time (ThreadsX.foreach(1:nruns) do _
+    #      lagrangian_accel!(lagf, acceleration, velocity, position)
+    #  end)
+end
+
 function test_lagrangian_accel()
     position = SA{Float64}[3,3,3,3]
     velocity = SA{Float64}[1,2,3,4]
     acceleration = similar(velocity)
 
     metf = x -> soft_lump_metric_iso_cart(x; rs = 1.0)
-    # lagf = vp -> lagrangian(metf, vp)
-    lagf = let metp = metf(position)
-        vp -> lagrangian(metp, vp)
-    end
+    lagf = vp -> lagrangian(metf, vp)
+    # lagf = let metp = metf(position)
+    #     vp -> lagrangian(metp, vp)
+    # end
 
-    vp = vcat(velocity, position)
-    @time lagf(vp);
-    @time lagf(vp);
-
-    @time lagrangian_accel!(lagf, acceleration, velocity, position)
-    @time lagrangian_accel!(lagf, acceleration, velocity, position)
+    # @time lagrangian_accel!(lagf, acceleration, velocity, position)
+    # @time lagrangian_accel!(lagf, acceleration, velocity, position)
+    @time lagrangian_accel(lagf, velocity, position)
+    @time lagrangian_accel(lagf, velocity, position)
 
     nruns = 100_000
     @time (foreach(1:nruns) do _
-         lagrangian_accel!(lagf, acceleration, velocity, position)
+         lagrangian_accel(lagf, velocity, position)
      end)
 
-    nruns = 1920*1080
-    @time (ThreadsX.foreach(1:nruns) do _
-         lagrangian_accel!(lagf, acceleration, velocity, position)
-     end)
+    # nruns = 1920*1080
+    # @time (ThreadsX.foreach(1:nruns) do _
+    #      lagrangian_accel!(lagf, acceleration, velocity, position)
+    #  end)
 end
 
 function test_lag_render()
@@ -154,7 +175,7 @@ function test_lag_render_sky(view_size::Integer; distance = 200)
 
     for (i, mfunc) in enumerate(mfuncs)
         mrend = LagrangianRender(mfunc, SA{Float64}[0,1,0], SA{Float64}[0, -distance, 0])
-        view_image = render_sky(mrend, view_size, sky_image=sky_image)
+        @time view_image = render_sky(mrend, view_size, sky_image=sky_image)
         save("test_view_image_$(i)_$(view_size).png", view_image)
         @info "Finished $i at view size of $view_size."
     end

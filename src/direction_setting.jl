@@ -42,9 +42,5 @@ end
 function pixel_coord_to_heading(pixel_coord; cam_matrix)
     (θ, ϕ) = uv_to_spherical(pixel_coord)
 
-    x = sin(ϕ) * cos(θ)
-    y = sin(ϕ) * sin(θ)
-    z = cos(ϕ)
-
-    cam_matrix * SA[x, y, z]
+    cam_matrix * SA[sin(ϕ) * cos(θ), sin(ϕ) * sin(θ), cos(ϕ)]
 end

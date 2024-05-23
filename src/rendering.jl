@@ -9,6 +9,11 @@ function LagrangianRender(metf::Function, camera_direction, cam_position)
     lagf = vp -> lagrangian(metf, vp)
     camera_direction = normalize(camera_direction)
     cam_matrix = [camera_direction nullspace(camera_direction*camera_direction')]
+    
+    if det(cam_matrix) < 0
+        Base.swapcols!(cam_matrix, 2, 3)
+    end
+
     cam_matrix = SMatrix{size(cam_matrix)...}(cam_matrix)
     return LagrangianRender(lagf, metf, cam_position, cam_matrix)
 end
@@ -35,10 +40,14 @@ function render_pixel2heading(
     function ode_func(du, u, _, _)
         lagrangian_accel(lagf, du, u)
     end
-
     prob = SecondOrderODEProblem(ode_func, du0, u0, (zero(time_final), time_final))
-    sol = solve(prob, RK4(), save_on = false, callback=trace_ode_termination_cb())
 
+    # function hamil(du, u, _)
+    #     (lagf∘vcat)(du, u)
+    # end
+    # prob = HamiltonianProblem(hamil, du0, u0, (zero(time_final), time_final))
+
+    sol = solve(prob, DPRKN4(), save_on = false, callback=trace_ode_termination_cb())
     return sol.u[end].x[1]
 end
 
@@ -66,6 +75,7 @@ function render_sky(mrend::LagrangianRender, view_size::Integer; sky_image = loa
     end
 end
 
+# TODO: WORKS but needs organization of output
 function render_pixels2headings(
         met_renderer::LagrangianRender, pixel_coords::AbstractArray;
         time_final = 1000
@@ -78,30 +88,33 @@ function render_pixels2headings(
     initial_headings = pixel_coord_to_heading.(pixel_coords; cam_matrix=cam_matrix)
 
     rcamposes = Iterators.repeated(position, length(pixel_coords))
-    u0  = (stack∘map)(initial_ray_position, rcamposes)
-    du0 = (stack∘map)(initial_headings, eachcol(u0)) do initial_heading, cam_pos 
+    u0  = map(initial_ray_position, rcamposes)
+    du0 = map(initial_headings, u0) do initial_heading, cam_pos 
         initial_ray_velocity(vcat(0, initial_heading), SA[1.0, 0, 0, 0], metf(cam_pos))
     end
 
-    vps0 = vcat(u0, du0)
 
-    laghps = similar(vps0, (size(vps0, 1), size(vps0, 1), size(vps0, 2)))
-    laggps = similar(vps0, (size(vps0, 1), size(vps0, 2)))
-
-    function ode_func(avs, vps, _, _)
-        lagrangian_accel!(lagf, avs, vps, laghps=laghps, laggps=laggps)
+    function ode_func(vel, pos, _, _)
+        lagrangian_accel(lagf, vel, pos)
     end
 
-    # lagrangian_accel(lagf, vps0)
-    # @time ode_func(similar(vps0), vps0, 0, 0)
-    # @time ode_func(similar(vps0), vps0, 0, 0)
-    @time ode_func(similar(vps0), vps0, 0, 0)
-    @time ode_func(similar(vps0), vps0, 0, 0)
+    function prob_func(prob, i, _)
+        remake(prob, u0 = ArrayPartition(du0[i], u0[i]))
+    end
 
-    # prob = ODEProblem(ode_func, vps0, (zero(time_final), time_final))
-    # sol = solve(prob, RK4(), save_on = false, callback=trace_ode_termination_cb())
+    prob = SecondOrderODEProblem(ode_func, nothing, nothing, (zero(time_final), time_final))
+    eprob = EnsembleProblem(prob, prob_func=prob_func)
 
-    # return sol.u[end].x[1]
+    sol = solve(
+                eprob, DPRKN4(), EnsembleThreads(),
+                save_on = false, 
+                callback=trace_ode_termination_cb(), 
+                trajectories = length(u0)
+               )
+
+    return map(sol) do sol
+        sol.u[end].x[1]
+    end
 end
 
 # struct MetricRenderer{F <: Function, G <: Function, T, V}
